@@ -56636,11 +56636,11 @@ const restoreCache = async (cacheDependencyPath) => {
     const cacheKey = await cache.restoreCache([cachePath], primaryKey);
     core.setOutput(constants_1.Outputs.CacheHit, Boolean(cacheKey));
     if (!cacheKey) {
-        core.info('Dotnet cache is not found');
+        core.info(`Dotnet packages cache not found for key: ${primaryKey}`);
         return;
     }
     core.saveState(constants_1.State.CacheMatchedKey, cacheKey);
-    core.info(`Cache restored from key: ${cacheKey}`);
+    core.info(`Dotnet packages cache restored from key: ${cacheKey}`);
 };
 exports.restoreCache = restoreCache;
 const findLockFile = async () => {
@@ -56667,7 +56667,7 @@ const restoreInstallationCache = async (versions, quality) => {
     const cacheKey = await cache.restoreCache([cachePath], primaryKey);
     core.setOutput(constants_1.Outputs.InstallationCacheHit, Boolean(cacheKey));
     if (!cacheKey) {
-        core.info('Dotnet installation cache is not found');
+        core.info(`Dotnet installation cache not found for key: ${primaryKey}`);
         return false;
     }
     core.saveState(constants_1.State.InstallationCacheMatchedKey, cacheKey);
