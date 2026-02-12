@@ -56661,16 +56661,21 @@ const findLockFile = async () => {
 const restoreInstallationCache = async (versions, quality) => {
     const primaryKey = (0, cache_utils_1.getInstallationCacheKey)(versions, quality);
     core.debug(`Installation primary key: ${primaryKey}`);
-    core.saveState(constants_1.State.InstallationCachePrimaryKey, primaryKey);
+    core.saveState(constants_1.State.InstallationCacheKey, primaryKey);
+    // Check if cache exists
+    const cacheKeyHit = await cache.restoreCache([], primaryKey, [], { lookupOnly: true });
+    if (!cacheKeyHit) {
+        core.info(`Dotnet installation cache miss for key: ${primaryKey}`);
+        return false;
+    }
+    else {
+        core.info(`Dotnet installation cache hit for key: ${primaryKey}`);
+    }
     const cachePath = installer_1.DotnetInstallDir.dirPath;
     core.debug(`Installation cache path: ${cachePath}`);
     const cacheKey = await cache.restoreCache([cachePath], primaryKey);
     core.setOutput(constants_1.Outputs.InstallationCacheHit, Boolean(cacheKey));
-    if (!cacheKey) {
-        core.info(`Dotnet installation cache not found for key: ${primaryKey}`);
-        return false;
-    }
-    core.saveState(constants_1.State.InstallationCacheMatchedKey, cacheKey);
+    core.saveState(constants_1.State.InstallationCacheHitKey, cacheKey);
     core.info(`Dotnet installation cache restored from key: ${cacheKey}`);
     return true;
 };
@@ -56846,8 +56851,8 @@ var State;
 (function (State) {
     State["CachePrimaryKey"] = "CACHE_KEY";
     State["CacheMatchedKey"] = "CACHE_RESULT";
-    State["InstallationCachePrimaryKey"] = "INSTALLATION_CACHE_KEY";
-    State["InstallationCacheMatchedKey"] = "INSTALLATION_CACHE_RESULT";
+    State["InstallationCacheKey"] = "INSTALLATION_CACHE_KEY";
+    State["InstallationCacheHitKey"] = "INSTALLATION_CACHE_RESULT";
     State["InstallationTrackedFiles"] = "INSTALLATION_TRACKED_FILES";
 })(State || (exports.State = State = {}));
 var Outputs;
