@@ -85,7 +85,7 @@ export async function run() {
         let dotnetInstaller: DotnetCoreInstaller;
         const trackFileChanges =
           core.getBooleanInput('cache') && isCacheFeatureAvailable();
-        
+
         for (const version of uniqueVersions) {
           dotnetInstaller = new DotnetCoreInstaller(
             version,
@@ -94,7 +94,7 @@ export async function run() {
           );
           const installedVersion = await dotnetInstaller.installDotnet();
           installedDotnetVersions.push(installedVersion);
-          
+
           // Store tracked file changes
           if (trackFileChanges && dotnetInstaller.hasTrackedChanges()) {
             const trackedFiles = dotnetInstaller.getTrackedChanges();
@@ -102,10 +102,13 @@ export async function run() {
             const allFiles = existingFiles
               ? existingFiles.split('\n').concat(trackedFiles)
               : trackedFiles;
-            
+
             // Store unique files
             const uniqueFiles = Array.from(new Set(allFiles));
-            core.saveState(State.InstallationTrackedFiles, uniqueFiles.join('\n'));
+            core.saveState(
+              State.InstallationTrackedFiles,
+              uniqueFiles.join('\n')
+            );
           }
         }
       } else {
