@@ -1,6 +1,8 @@
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
+import os from 'os';
+import crypto from 'crypto';
 
 import {cliCommand} from './constants';
 
@@ -102,4 +104,33 @@ function isGhes(): boolean {
   const isLocalHost = hostname.endsWith('.LOCALHOST');
 
   return !isGitHubHost && !isGitHubEnterpriseCloudHost && !isLocalHost;
+}
+
+/**
+ * Generates a cache key for dotnet installation based on versions, quality, and runner environment.
+ * @param versions Array of dotnet versions to install
+ * @param quality Quality option for dotnet installation
+ * @returns Cache key string
+ */
+export function getInstallationCacheKey(
+  versions: string[],
+  quality?: string
+): string {
+  const platform = process.env.RUNNER_OS || os.platform();
+  const architecture = process.env.RUNNER_ARCH || os.arch();
+
+  // Sort versions to ensure consistent cache key regardless of input order
+  const sortedVersions = [...versions].sort().join(',');
+
+  // Create a hash of the versions and quality to keep the key reasonably sized
+  const hash = crypto
+    .createHash('sha256')
+    .update(sortedVersions + (quality || ''))
+    .digest('hex')
+    .substring(0, 16);
+
+  const cacheKey = `dotnet-installation-${platform}-${architecture}-${hash}`;
+  core.debug(`Installation cache key: ${cacheKey}`);
+
+  return cacheKey;
 }

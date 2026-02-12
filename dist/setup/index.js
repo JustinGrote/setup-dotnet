@@ -56613,7 +56613,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.restoreCache = void 0;
+exports.restoreInstallationCache = exports.restoreCache = void 0;
 const promises_1 = __nccwpck_require__(93977);
 const node_path_1 = __nccwpck_require__(49411);
 const cache = __importStar(__nccwpck_require__(27799));
@@ -56621,6 +56621,7 @@ const core = __importStar(__nccwpck_require__(42186));
 const glob = __importStar(__nccwpck_require__(28090));
 const cache_utils_1 = __nccwpck_require__(41678);
 const constants_1 = __nccwpck_require__(69042);
+const installer_1 = __nccwpck_require__(12574);
 const restoreCache = async (cacheDependencyPath) => {
     const lockFilePath = cacheDependencyPath || (await findLockFile());
     const fileHash = await glob.hashFiles(lockFilePath);
@@ -56651,6 +56652,29 @@ const findLockFile = async () => {
     }
     return (0, node_path_1.join)(workspace, lockFile);
 };
+/**
+ * Restore dotnet installation from cache.
+ * @param versions Array of dotnet versions to install
+ * @param quality Quality option for dotnet installation
+ * @returns true if cache was restored, false otherwise
+ */
+const restoreInstallationCache = async (versions, quality) => {
+    const primaryKey = (0, cache_utils_1.getInstallationCacheKey)(versions, quality);
+    core.debug(`Installation primary key: ${primaryKey}`);
+    core.saveState(constants_1.State.InstallationCachePrimaryKey, primaryKey);
+    const cachePath = installer_1.DotnetInstallDir.dirPath;
+    core.debug(`Installation cache path: ${cachePath}`);
+    const cacheKey = await cache.restoreCache([cachePath], primaryKey);
+    core.setOutput(constants_1.Outputs.InstallationCacheHit, Boolean(cacheKey));
+    if (!cacheKey) {
+        core.info('Dotnet installation cache is not found');
+        return false;
+    }
+    core.saveState(constants_1.State.InstallationCacheMatchedKey, cacheKey);
+    core.info(`Dotnet installation cache restored from key: ${cacheKey}`);
+    return true;
+};
+exports.restoreInstallationCache = restoreInstallationCache;
 
 
 /***/ }),
@@ -56693,12 +56717,18 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getNuGetFolderPath = void 0;
 exports.isCacheFeatureAvailable = isCacheFeatureAvailable;
+exports.getInstallationCacheKey = getInstallationCacheKey;
 const cache = __importStar(__nccwpck_require__(27799));
 const core = __importStar(__nccwpck_require__(42186));
 const exec = __importStar(__nccwpck_require__(71514));
+const os_1 = __importDefault(__nccwpck_require__(22037));
+const crypto_1 = __importDefault(__nccwpck_require__(6113));
 const constants_1 = __nccwpck_require__(69042);
 /**
  * Get NuGet global packages, cache, and temp folders from .NET CLI.
@@ -56771,6 +56801,27 @@ function isGhes() {
     const isLocalHost = hostname.endsWith('.LOCALHOST');
     return !isGitHubHost && !isGitHubEnterpriseCloudHost && !isLocalHost;
 }
+/**
+ * Generates a cache key for dotnet installation based on versions, quality, and runner environment.
+ * @param versions Array of dotnet versions to install
+ * @param quality Quality option for dotnet installation
+ * @returns Cache key string
+ */
+function getInstallationCacheKey(versions, quality) {
+    const platform = process.env.RUNNER_OS || os_1.default.platform();
+    const architecture = process.env.RUNNER_ARCH || os_1.default.arch();
+    // Sort versions to ensure consistent cache key regardless of input order
+    const sortedVersions = [...versions].sort().join(',');
+    // Create a hash of the versions and quality to keep the key reasonably sized
+    const hash = crypto_1.default
+        .createHash('sha256')
+        .update(sortedVersions + (quality || ''))
+        .digest('hex')
+        .substring(0, 16);
+    const cacheKey = `dotnet-installation-${platform}-${architecture}-${hash}`;
+    core.debug(`Installation cache key: ${cacheKey}`);
+    return cacheKey;
+}
 
 
 /***/ }),
@@ -56793,11 +56844,14 @@ var State;
 (function (State) {
     State["CachePrimaryKey"] = "CACHE_KEY";
     State["CacheMatchedKey"] = "CACHE_RESULT";
+    State["InstallationCachePrimaryKey"] = "INSTALLATION_CACHE_KEY";
+    State["InstallationCacheMatchedKey"] = "INSTALLATION_CACHE_RESULT";
 })(State || (exports.State = State = {}));
 var Outputs;
 (function (Outputs) {
     Outputs["CacheHit"] = "cache-hit";
     Outputs["DotnetVersion"] = "dotnet-version";
+    Outputs["InstallationCacheHit"] = "installation-cache-hit";
 })(Outputs || (exports.Outputs = Outputs = {}));
 
 
@@ -57199,12 +57253,26 @@ async function run() {
             if (quality && !qualityOptions.includes(quality)) {
                 throw new Error(`Value '${quality}' is not supported for the 'dotnet-quality' option. Supported values are: daily, signed, validated, preview, ga.`);
             }
-            let dotnetInstaller;
             const uniqueVersions = new Set(versions);
-            for (const version of uniqueVersions) {
-                dotnetInstaller = new installer_1.DotnetCoreInstaller(version, quality);
-                const installedVersion = await dotnetInstaller.installDotnet();
-                installedDotnetVersions.push(installedVersion);
+            const uniqueVersionsArray = Array.from(uniqueVersions);
+            // Try to restore from installation cache if caching is enabled
+            let cacheRestored = false;
+            if (core.getBooleanInput('cache') && (0, cache_utils_1.isCacheFeatureAvailable)()) {
+                cacheRestored = await (0, cache_restore_1.restoreInstallationCache)(uniqueVersionsArray, quality);
+            }
+            // Only install if cache was not restored
+            if (!cacheRestored) {
+                let dotnetInstaller;
+                for (const version of uniqueVersions) {
+                    dotnetInstaller = new installer_1.DotnetCoreInstaller(version, quality);
+                    const installedVersion = await dotnetInstaller.installDotnet();
+                    installedDotnetVersions.push(installedVersion);
+                }
+            }
+            else {
+                core.info('Dotnet installation restored from cache, skipping installation.');
+                // Still need to populate installedDotnetVersions for output
+                installedDotnetVersions.push(...uniqueVersionsArray);
             }
             installer_1.DotnetInstallDir.addToPath();
             const workloadsInput = core.getInput('workloads');
@@ -72213,6 +72281,24 @@ exports.UserDelegationKeyCredential = UserDelegationKeyCredential;
 
 /***/ }),
 
+/***/ 39241:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.KnownEncryptionAlgorithmType = void 0;
+/** Known values of {@link EncryptionAlgorithmType} that the service accepts. */
+var KnownEncryptionAlgorithmType;
+(function (KnownEncryptionAlgorithmType) {
+    KnownEncryptionAlgorithmType["AES256"] = "AES256";
+})(KnownEncryptionAlgorithmType || (exports.KnownEncryptionAlgorithmType = KnownEncryptionAlgorithmType = {}));
+//# sourceMappingURL=generatedModels.js.map
+
+/***/ }),
+
 /***/ 57955:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -82485,6 +82571,132 @@ exports.listType = {
 
 /***/ }),
 
+/***/ 24763:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=appendBlob.js.map
+
+/***/ }),
+
+/***/ 57427:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=blob.js.map
+
+/***/ }),
+
+/***/ 56945:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=blockBlob.js.map
+
+/***/ }),
+
+/***/ 43634:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=container.js.map
+
+/***/ }),
+
+/***/ 68529:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const tslib_1 = __nccwpck_require__(4351);
+tslib_1.__exportStar(__nccwpck_require__(75650), exports);
+tslib_1.__exportStar(__nccwpck_require__(43634), exports);
+tslib_1.__exportStar(__nccwpck_require__(57427), exports);
+tslib_1.__exportStar(__nccwpck_require__(76425), exports);
+tslib_1.__exportStar(__nccwpck_require__(24763), exports);
+tslib_1.__exportStar(__nccwpck_require__(56945), exports);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 76425:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=pageBlob.js.map
+
+/***/ }),
+
+/***/ 75650:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT License.
+ *
+ * Code generated by Microsoft (R) AutoRest Code Generator.
+ * Changes may cause incorrect behavior and will be lost if the code is regenerated.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=service.js.map
+
+/***/ }),
+
 /***/ 80313:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -85690,132 +85902,6 @@ const filterBlobsOperationSpec = {
 
 /***/ }),
 
-/***/ 24763:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=appendBlob.js.map
-
-/***/ }),
-
-/***/ 57427:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=blob.js.map
-
-/***/ }),
-
-/***/ 56945:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=blockBlob.js.map
-
-/***/ }),
-
-/***/ 43634:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=container.js.map
-
-/***/ }),
-
-/***/ 68529:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const tslib_1 = __nccwpck_require__(4351);
-tslib_1.__exportStar(__nccwpck_require__(75650), exports);
-tslib_1.__exportStar(__nccwpck_require__(43634), exports);
-tslib_1.__exportStar(__nccwpck_require__(57427), exports);
-tslib_1.__exportStar(__nccwpck_require__(76425), exports);
-tslib_1.__exportStar(__nccwpck_require__(24763), exports);
-tslib_1.__exportStar(__nccwpck_require__(56945), exports);
-//# sourceMappingURL=index.js.map
-
-/***/ }),
-
-/***/ 76425:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=pageBlob.js.map
-
-/***/ }),
-
-/***/ 75650:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/*
- * Copyright (c) Microsoft Corporation.
- * Licensed under the MIT License.
- *
- * Code generated by Microsoft (R) AutoRest Code Generator.
- * Changes may cause incorrect behavior and will be lost if the code is regenerated.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-//# sourceMappingURL=service.js.map
-
-/***/ }),
-
 /***/ 50166:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -85886,24 +85972,6 @@ class StorageClient extends coreHttpCompat.ExtendedServiceClient {
 }
 exports.StorageClient = StorageClient;
 //# sourceMappingURL=storageClient.js.map
-
-/***/ }),
-
-/***/ 39241:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.KnownEncryptionAlgorithmType = void 0;
-/** Known values of {@link EncryptionAlgorithmType} that the service accepts. */
-var KnownEncryptionAlgorithmType;
-(function (KnownEncryptionAlgorithmType) {
-    KnownEncryptionAlgorithmType["AES256"] = "AES256";
-})(KnownEncryptionAlgorithmType || (exports.KnownEncryptionAlgorithmType = KnownEncryptionAlgorithmType = {}));
-//# sourceMappingURL=generatedModels.js.map
 
 /***/ }),
 

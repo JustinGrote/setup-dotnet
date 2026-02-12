@@ -6,7 +6,7 @@ import path from 'path';
 import semver from 'semver';
 import * as auth from './authutil';
 import {isCacheFeatureAvailable} from './cache-utils';
-import {restoreCache} from './cache-restore';
+import {restoreCache, restoreInstallationCache} from './cache-restore';
 import {Outputs} from './constants';
 import JSON5 from 'json5';
 
@@ -67,13 +67,34 @@ export async function run() {
         );
       }
 
-      let dotnetInstaller: DotnetCoreInstaller;
       const uniqueVersions = new Set<string>(versions);
-      for (const version of uniqueVersions) {
-        dotnetInstaller = new DotnetCoreInstaller(version, quality);
-        const installedVersion = await dotnetInstaller.installDotnet();
-        installedDotnetVersions.push(installedVersion);
+      const uniqueVersionsArray = Array.from(uniqueVersions);
+
+      // Try to restore from installation cache if caching is enabled
+      let cacheRestored = false;
+      if (core.getBooleanInput('cache') && isCacheFeatureAvailable()) {
+        cacheRestored = await restoreInstallationCache(
+          uniqueVersionsArray,
+          quality
+        );
       }
+
+      // Only install if cache was not restored
+      if (!cacheRestored) {
+        let dotnetInstaller: DotnetCoreInstaller;
+        for (const version of uniqueVersions) {
+          dotnetInstaller = new DotnetCoreInstaller(version, quality);
+          const installedVersion = await dotnetInstaller.installDotnet();
+          installedDotnetVersions.push(installedVersion);
+        }
+      } else {
+        core.info(
+          'Dotnet installation restored from cache, skipping installation.'
+        );
+        // Still need to populate installedDotnetVersions for output
+        installedDotnetVersions.push(...uniqueVersionsArray);
+      }
+
       DotnetInstallDir.addToPath();
 
       const workloadsInput = core.getInput('workloads');

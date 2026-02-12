@@ -3,6 +3,7 @@ import * as cache from '@actions/cache';
 import fs from 'node:fs';
 import {getNuGetFolderPath} from './cache-utils';
 import {State} from './constants';
+import {DotnetInstallDir} from './installer';
 
 // Catch and log any unhandled exceptions.  These exceptions can leak out of the uploadChunk method in
 // @actions/toolkit when a failed upload closes the file descriptor causing any in-process reads to
@@ -12,10 +13,44 @@ process.on('uncaughtException', e => {
   core.info(`${warningPrefix}${e.message}`);
 });
 
+const cacheInstallation = async () => {
+  const state = core.getState(State.InstallationCacheMatchedKey);
+  const primaryKey = core.getState(State.InstallationCachePrimaryKey);
+
+  if (!primaryKey) {
+    core.info('Installation primary key was not generated, not saving cache.');
+    return;
+  }
+
+  const cachePath = DotnetInstallDir.dirPath;
+
+  if (!fs.existsSync(cachePath)) {
+    core.warning(
+      `Installation path doesn't exist on disk: ${cachePath}. Not saving cache.`
+    );
+    return;
+  }
+
+  if (primaryKey === state) {
+    core.info(
+      `Installation cache hit occurred on the primary key ${primaryKey}, not saving cache.`
+    );
+    return;
+  }
+
+  const cacheId = await cache.saveCache([cachePath], primaryKey);
+  if (cacheId == -1) {
+    return;
+  }
+
+  core.info(`Installation cache saved with the key: ${primaryKey}`);
+};
+
 export async function run() {
   try {
     if (core.getBooleanInput('cache')) {
       await cachePackages();
+      await cacheInstallation();
     }
   } catch (error) {
     core.setFailed(error.message);

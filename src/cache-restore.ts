@@ -4,8 +4,9 @@ import * as cache from '@actions/cache';
 import * as core from '@actions/core';
 import * as glob from '@actions/glob';
 
-import {getNuGetFolderPath} from './cache-utils';
+import {getNuGetFolderPath, getInstallationCacheKey} from './cache-utils';
 import {lockFilePatterns, State, Outputs} from './constants';
+import {DotnetInstallDir} from './installer';
 
 export const restoreCache = async (cacheDependencyPath?: string) => {
   const lockFilePath = cacheDependencyPath || (await findLockFile());
@@ -47,4 +48,36 @@ const findLockFile = async () => {
   }
 
   return join(workspace, lockFile);
+};
+
+/**
+ * Restore dotnet installation from cache.
+ * @param versions Array of dotnet versions to install
+ * @param quality Quality option for dotnet installation
+ * @returns true if cache was restored, false otherwise
+ */
+export const restoreInstallationCache = async (
+  versions: string[],
+  quality?: string
+): Promise<boolean> => {
+  const primaryKey = getInstallationCacheKey(versions, quality);
+  core.debug(`Installation primary key: ${primaryKey}`);
+
+  core.saveState(State.InstallationCachePrimaryKey, primaryKey);
+
+  const cachePath = DotnetInstallDir.dirPath;
+  core.debug(`Installation cache path: ${cachePath}`);
+
+  const cacheKey = await cache.restoreCache([cachePath], primaryKey);
+  core.setOutput(Outputs.InstallationCacheHit, Boolean(cacheKey));
+
+  if (!cacheKey) {
+    core.info('Dotnet installation cache is not found');
+    return false;
+  }
+
+  core.saveState(State.InstallationCacheMatchedKey, cacheKey);
+  core.info(`Dotnet installation cache restored from key: ${cacheKey}`);
+
+  return true;
 };

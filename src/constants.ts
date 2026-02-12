@@ -10,10 +10,13 @@ export const cliCommand =
 
 export enum State {
   CachePrimaryKey = 'CACHE_KEY',
-  CacheMatchedKey = 'CACHE_RESULT'
+  CacheMatchedKey = 'CACHE_RESULT',
+  InstallationCachePrimaryKey = 'INSTALLATION_CACHE_KEY',
+  InstallationCacheMatchedKey = 'INSTALLATION_CACHE_RESULT'
 }
 
 export enum Outputs {
   CacheHit = 'cache-hit',
-  DotnetVersion = 'dotnet-version'
+  DotnetVersion = 'dotnet-version',
+  InstallationCacheHit = 'installation-cache-hit'
 }
