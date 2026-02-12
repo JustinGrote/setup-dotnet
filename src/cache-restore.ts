@@ -66,7 +66,9 @@ export const restoreInstallationCache = async (
   core.saveState(State.InstallationCacheKey, primaryKey);
 
   // Check if cache exists
-  const cacheKeyHit = await cache.restoreCache([], primaryKey, [], {lookupOnly: true});
+  const cacheKeyHit = await cache.restoreCache([], primaryKey, [], {
+    lookupOnly: true
+  });
 
   if (!cacheKeyHit) {
     core.info(`Dotnet installation cache miss for key: ${primaryKey}`);
