@@ -83,7 +83,9 @@ const cacheInstallation = async () => {
     return;
   }
 
-  core.info(`Cache miss for installation cache with the key ${primaryKey}, caching dotnet install path: ${cachePath}`);
+  core.info(
+    `Cache miss for installation cache with the key ${primaryKey}, caching dotnet install path: ${cachePath}`
+  );
   const cacheId = await cache.saveCache([cachePath], primaryKey);
   if (cacheId == -1) {
     return;
