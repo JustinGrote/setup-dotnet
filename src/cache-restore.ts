@@ -28,12 +28,12 @@ export const restoreCache = async (cacheDependencyPath?: string) => {
   core.setOutput(Outputs.CacheHit, Boolean(cacheKey));
 
   if (!cacheKey) {
-    core.info('Dotnet cache is not found');
+    core.info(`Dotnet packages cache not found for key: ${primaryKey}`);
     return;
   }
 
   core.saveState(State.CacheMatchedKey, cacheKey);
-  core.info(`Cache restored from key: ${cacheKey}`);
+  core.info(`Dotnet packages cache restored from key: ${cacheKey}`);
 };
 
 const findLockFile = async () => {
@@ -72,7 +72,7 @@ export const restoreInstallationCache = async (
   core.setOutput(Outputs.InstallationCacheHit, Boolean(cacheKey));
 
   if (!cacheKey) {
-    core.info('Dotnet installation cache is not found');
+    core.info(`Dotnet installation cache not found for key: ${primaryKey}`);
     return false;
   }
 
