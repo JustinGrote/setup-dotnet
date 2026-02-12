@@ -65,8 +65,11 @@ export const restoreInstallationCache = async (
 
   core.saveState(State.InstallationCacheKey, primaryKey);
 
+  const cachePath = DotnetInstallDir.dirPath;
+  core.debug(`Installation cache path: ${cachePath}`);
+
   // Check if cache exists
-  const cacheKeyHit = await cache.restoreCache([], primaryKey, [], {
+  const cacheKeyHit = await cache.restoreCache([cachePath], primaryKey, [], {
     lookupOnly: true
   });
 
@@ -76,9 +79,6 @@ export const restoreInstallationCache = async (
   } else {
     core.info(`Dotnet installation cache hit for key: ${primaryKey}`);
   }
-
-  const cachePath = DotnetInstallDir.dirPath;
-  core.debug(`Installation cache path: ${cachePath}`);
 
   const cacheKey = await cache.restoreCache([cachePath], primaryKey);
   core.setOutput(Outputs.InstallationCacheHit, Boolean(cacheKey));
