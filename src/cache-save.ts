@@ -13,6 +13,49 @@ process.on('uncaughtException', e => {
   core.info(`${warningPrefix}${e.message}`);
 });
 
+export async function run() {
+  try {
+    if (core.getBooleanInput('cache')) {
+      await cachePackages();
+      await cacheInstallation();
+    }
+  } catch (error) {
+    core.setFailed(error.message);
+  }
+}
+
+const cachePackages = async () => {
+  const state = core.getState(State.CacheMatchedKey);
+  const primaryKey = core.getState(State.CachePrimaryKey);
+
+  if (!primaryKey) {
+    core.info('Primary key was not generated, not saving cache.');
+    return;
+  }
+
+  const {'global-packages': cachePath} = await getNuGetFolderPath();
+
+  if (!fs.existsSync(cachePath)) {
+    throw new Error(
+      `Packages Cache folder path is retrieved for .NET CLI but doesn't exist on disk: ${cachePath}`
+    );
+  }
+
+  if (primaryKey === state) {
+    core.info(
+      `Packages Cache hit occurred on the primary key ${primaryKey}, not saving cache.`
+    );
+    return;
+  }
+
+  const cacheId = await cache.saveCache([cachePath], primaryKey);
+  if (cacheId == -1) {
+    return;
+  }
+
+  core.info(`Packages Cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
+};
+
 const cacheInstallation = async () => {
   const state = core.getState(State.InstallationCacheMatchedKey);
   const primaryKey = core.getState(State.InstallationCachePrimaryKey);
@@ -43,50 +86,7 @@ const cacheInstallation = async () => {
     return;
   }
 
-  core.info(`Installation cache saved with the key: ${primaryKey}`);
-};
-
-export async function run() {
-  try {
-    if (core.getBooleanInput('cache')) {
-      await cachePackages();
-      await cacheInstallation();
-    }
-  } catch (error) {
-    core.setFailed(error.message);
-  }
-}
-
-const cachePackages = async () => {
-  const state = core.getState(State.CacheMatchedKey);
-  const primaryKey = core.getState(State.CachePrimaryKey);
-
-  if (!primaryKey) {
-    core.info('Primary key was not generated, not saving cache.');
-    return;
-  }
-
-  const {'global-packages': cachePath} = await getNuGetFolderPath();
-
-  if (!fs.existsSync(cachePath)) {
-    throw new Error(
-      `Cache folder path is retrieved for .NET CLI but doesn't exist on disk: ${cachePath}`
-    );
-  }
-
-  if (primaryKey === state) {
-    core.info(
-      `Cache hit occurred on the primary key ${primaryKey}, not saving cache.`
-    );
-    return;
-  }
-
-  const cacheId = await cache.saveCache([cachePath], primaryKey);
-  if (cacheId == -1) {
-    return;
-  }
-
-  core.info(`Cache saved with the key: ${primaryKey}`);
+  core.info(`Installation cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
 };
 
 run();
