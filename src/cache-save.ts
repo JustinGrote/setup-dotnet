@@ -53,7 +53,9 @@ const cachePackages = async () => {
     return;
   }
 
-  core.info(`Packages Cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
+  core.info(
+    `Packages Cache saved with the key: ${primaryKey} and cache id: ${cacheId}`
+  );
 };
 
 const cacheInstallation = async () => {
@@ -86,7 +88,9 @@ const cacheInstallation = async () => {
     return;
   }
 
-  core.info(`Installation cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
+  core.info(
+    `Installation cache saved with the key: ${primaryKey} and cache id: ${cacheId}`
+  );
 };
 
 run();
