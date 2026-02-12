@@ -118,6 +118,8 @@ export function getInstallationCacheKey(
 ): string {
   const platform = process.env.RUNNER_OS || os.platform();
   const architecture = process.env.RUNNER_ARCH || os.arch();
+  const imageOS = process.env.ImageOS || 'unknown';
+  const imageVersion = process.env.ImageVersion || 'unknown';
 
   // Sort versions to ensure consistent cache key regardless of input order
   const sortedVersions = [...versions].sort().join(',');
@@ -129,7 +131,7 @@ export function getInstallationCacheKey(
     .digest('hex')
     .substring(0, 16);
 
-  const cacheKey = `dotnet-installation-${platform}-${architecture}-${hash}`;
+  const cacheKey = `dotnet-installation-${platform}-${architecture}-${imageOS}-${imageVersion}-${hash}`;
   core.debug(`Installation cache key: ${cacheKey}`);
 
   return cacheKey;

@@ -8,6 +8,7 @@ import * as auth from './authutil';
 import {isCacheFeatureAvailable} from './cache-utils';
 import {restoreCache, restoreInstallationCache} from './cache-restore';
 import {Outputs} from './constants';
+import {State} from './constants';
 import JSON5 from 'json5';
 
 const qualityOptions = [
@@ -82,10 +83,30 @@ export async function run() {
       // Only install if cache was not restored
       if (!cacheRestored) {
         let dotnetInstaller: DotnetCoreInstaller;
+        const trackFileChanges =
+          core.getBooleanInput('cache') && isCacheFeatureAvailable();
+        
         for (const version of uniqueVersions) {
-          dotnetInstaller = new DotnetCoreInstaller(version, quality);
+          dotnetInstaller = new DotnetCoreInstaller(
+            version,
+            quality,
+            trackFileChanges
+          );
           const installedVersion = await dotnetInstaller.installDotnet();
           installedDotnetVersions.push(installedVersion);
+          
+          // Store tracked file changes
+          if (trackFileChanges && dotnetInstaller.hasTrackedChanges()) {
+            const trackedFiles = dotnetInstaller.getTrackedChanges();
+            const existingFiles = core.getState(State.InstallationTrackedFiles);
+            const allFiles = existingFiles
+              ? existingFiles.split('\n').concat(trackedFiles)
+              : trackedFiles;
+            
+            // Store unique files
+            const uniqueFiles = Array.from(new Set(allFiles));
+            core.saveState(State.InstallationTrackedFiles, uniqueFiles.join('\n'));
+          }
         }
       } else {
         core.info(

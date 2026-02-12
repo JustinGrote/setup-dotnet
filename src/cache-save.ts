@@ -83,10 +83,24 @@ const cacheInstallation = async () => {
     return;
   }
 
+  // Get tracked files from the installation process
+  const trackedFilesState = core.getState(State.InstallationTrackedFiles);
+  let pathsToCache: string[] = [cachePath];
+
+  if (trackedFilesState) {
+    const trackedFiles = trackedFilesState.split('\n').filter(Boolean);
+    if (trackedFiles.length > 0) {
+      core.info(
+        `Caching ${trackedFiles.length} changed files from dotnet installation`
+      );
+      pathsToCache = trackedFiles;
+    }
+  }
+
   core.info(
-    `Cache miss for installation cache with the key ${primaryKey}, caching dotnet install path: ${cachePath}`
+    `Cache miss for installation cache with the key ${primaryKey}, caching ${pathsToCache.length} files that differ in the dotnet folder.`
   );
-  const cacheId = await cache.saveCache([cachePath], primaryKey);
+  const cacheId = await cache.saveCache(pathsToCache, primaryKey);
   if (cacheId == -1) {
     return;
   }

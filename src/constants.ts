@@ -12,7 +12,8 @@ export enum State {
   CachePrimaryKey = 'CACHE_KEY',
   CacheMatchedKey = 'CACHE_RESULT',
   InstallationCachePrimaryKey = 'INSTALLATION_CACHE_KEY',
-  InstallationCacheMatchedKey = 'INSTALLATION_CACHE_RESULT'
+  InstallationCacheMatchedKey = 'INSTALLATION_CACHE_RESULT',
+  InstallationTrackedFiles = 'INSTALLATION_TRACKED_FILES'
 }
 
 export enum Outputs {

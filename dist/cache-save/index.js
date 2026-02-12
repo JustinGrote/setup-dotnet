@@ -47918,8 +47918,18 @@ const cacheInstallation = async () => {
         core.info(`Installation cache hit occurred on the primary key ${primaryKey}, not saving cache.`);
         return;
     }
-    core.info(`Cache miss for installation cache with the key ${primaryKey}, caching dotnet install path: ${cachePath}`);
-    const cacheId = await cache.saveCache([cachePath], primaryKey);
+    // Get tracked files from the installation process
+    const trackedFilesState = core.getState(constants_1.State.InstallationTrackedFiles);
+    let pathsToCache = [cachePath];
+    if (trackedFilesState) {
+        const trackedFiles = trackedFilesState.split('\n').filter(Boolean);
+        if (trackedFiles.length > 0) {
+            core.info(`Caching ${trackedFiles.length} changed files from dotnet installation`);
+            pathsToCache = trackedFiles;
+        }
+    }
+    core.info(`Cache miss for installation cache with the key ${primaryKey}, caching ${pathsToCache.length} files that differ in the dotnet folder.`);
+    const cacheId = await cache.saveCache(pathsToCache, primaryKey);
     if (cacheId == -1) {
         return;
     }
@@ -48061,6 +48071,8 @@ function isGhes() {
 function getInstallationCacheKey(versions, quality) {
     const platform = process.env.RUNNER_OS || os_1.default.platform();
     const architecture = process.env.RUNNER_ARCH || os_1.default.arch();
+    const imageOS = process.env.ImageOS || 'unknown';
+    const imageVersion = process.env.ImageVersion || 'unknown';
     // Sort versions to ensure consistent cache key regardless of input order
     const sortedVersions = [...versions].sort().join(',');
     // Create a hash of the versions and quality to keep the key reasonably sized
@@ -48069,7 +48081,7 @@ function getInstallationCacheKey(versions, quality) {
         .update(sortedVersions + (quality || ''))
         .digest('hex')
         .substring(0, 16);
-    const cacheKey = `dotnet-installation-${platform}-${architecture}-${hash}`;
+    const cacheKey = `dotnet-installation-${platform}-${architecture}-${imageOS}-${imageVersion}-${hash}`;
     core.debug(`Installation cache key: ${cacheKey}`);
     return cacheKey;
 }
@@ -48097,6 +48109,7 @@ var State;
     State["CacheMatchedKey"] = "CACHE_RESULT";
     State["InstallationCachePrimaryKey"] = "INSTALLATION_CACHE_KEY";
     State["InstallationCacheMatchedKey"] = "INSTALLATION_CACHE_RESULT";
+    State["InstallationTrackedFiles"] = "INSTALLATION_TRACKED_FILES";
 })(State || (exports.State = State = {}));
 var Outputs;
 (function (Outputs) {
@@ -48104,6 +48117,183 @@ var Outputs;
     Outputs["DotnetVersion"] = "dotnet-version";
     Outputs["InstallationCacheHit"] = "installation-cache-hit";
 })(Outputs || (exports.Outputs = Outputs = {}));
+
+
+/***/ }),
+
+/***/ 65828:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.FileWatcher = void 0;
+const fs = __importStar(__nccwpck_require__(57147));
+const path = __importStar(__nccwpck_require__(71017));
+const core = __importStar(__nccwpck_require__(42186));
+/**
+ * Tracks file changes in a directory during operations.
+ * Records new files and modified files so only changed files are cached.
+ */
+class FileWatcher {
+    baselineFiles = new Map(); // filename -> mtime
+    changedFiles = new Set();
+    watchPath;
+    constructor(watchPath) {
+        this.watchPath = watchPath;
+    }
+    /**
+     * Capture the baseline state of files in the watch path
+     */
+    async captureBaseline() {
+        try {
+            if (!fs.existsSync(this.watchPath)) {
+                core.debug(`Watch path does not exist: ${this.watchPath}`);
+                return;
+            }
+            await this.recursiveCapture(this.watchPath);
+            core.debug(`Captured baseline of ${this.baselineFiles.size} files in ${this.watchPath}`);
+        }
+        catch (error) {
+            core.warning(`Failed to capture baseline: ${error}`);
+        }
+    }
+    /**
+     * Recursively capture all files and their mtimes
+     */
+    async recursiveCapture(dirPath) {
+        try {
+            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dirPath, entry.name);
+                try {
+                    if (entry.isDirectory()) {
+                        // Recursively capture subdirectories
+                        await this.recursiveCapture(fullPath);
+                    }
+                    else if (entry.isFile()) {
+                        const stats = fs.statSync(fullPath);
+                        const relativePath = path.relative(this.watchPath, fullPath);
+                        this.baselineFiles.set(relativePath, stats.mtimeMs);
+                    }
+                }
+                catch (err) {
+                    core.debug(`Error processing ${fullPath}: ${err}`);
+                    // Continue with other files
+                }
+            }
+        }
+        catch (error) {
+            core.debug(`Error reading directory ${dirPath}: ${error}`);
+        }
+    }
+    /**
+     * Detect which files have changed since baseline
+     */
+    async detectChanges() {
+        try {
+            if (!fs.existsSync(this.watchPath)) {
+                core.debug(`Watch path does not exist: ${this.watchPath}`);
+                return;
+            }
+            await this.recursiveDetect(this.watchPath);
+            core.debug(`Detected ${this.changedFiles.size} changed files`);
+        }
+        catch (error) {
+            core.warning(`Failed to detect changes: ${error}`);
+        }
+    }
+    /**
+     * Recursively detect changed or new files
+     */
+    async recursiveDetect(dirPath) {
+        try {
+            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dirPath, entry.name);
+                try {
+                    if (entry.isDirectory()) {
+                        // Recursively check subdirectories
+                        await this.recursiveDetect(fullPath);
+                    }
+                    else if (entry.isFile()) {
+                        const relativePath = path.relative(this.watchPath, fullPath);
+                        const stats = fs.statSync(fullPath);
+                        const baselineMtime = this.baselineFiles.get(relativePath);
+                        if (baselineMtime === undefined) {
+                            // New file
+                            this.changedFiles.add(relativePath);
+                            core.debug(`New file: ${relativePath}`);
+                        }
+                        else if (stats.mtimeMs > baselineMtime) {
+                            // Modified file
+                            this.changedFiles.add(relativePath);
+                            core.debug(`Modified file: ${relativePath}`);
+                        }
+                    }
+                }
+                catch (err) {
+                    core.debug(`Error processing ${fullPath}: ${err}`);
+                }
+            }
+        }
+        catch (error) {
+            core.debug(`Error reading directory ${dirPath}: ${error}`);
+        }
+    }
+    /**
+     * Get the list of changed files as relative paths
+     */
+    getChangedFiles() {
+        return Array.from(this.changedFiles);
+    }
+    /**
+     * Get the list of changed files as absolute paths
+     */
+    getChangedFilesPaths() {
+        return Array.from(this.changedFiles).map(filePath => path.join(this.watchPath, filePath));
+    }
+    /**
+     * Check if there are any tracked changes
+     */
+    hasChanges() {
+        return this.changedFiles.size > 0;
+    }
+}
+exports.FileWatcher = FileWatcher;
 
 
 /***/ }),
@@ -48161,6 +48351,7 @@ const path_1 = __importDefault(__nccwpck_require__(71017));
 const os_1 = __importDefault(__nccwpck_require__(22037));
 const semver_1 = __importDefault(__nccwpck_require__(11383));
 const utils_1 = __nccwpck_require__(71314);
+const file_watcher_1 = __nccwpck_require__(65828);
 const QUALITY_INPUT_MINIMAL_MAJOR_TAG = 6;
 const LATEST_PATCH_SYNTAX_MINIMAL_MAJOR_TAG = 5;
 class DotnetVersionResolver {
@@ -48347,14 +48538,24 @@ exports.DotnetInstallDir = DotnetInstallDir;
 class DotnetCoreInstaller {
     version;
     quality;
+    trackFileChanges;
     static {
         DotnetInstallDir.setEnvironmentVariable();
     }
-    constructor(version, quality) {
+    fileWatcher = null;
+    constructor(version, quality, trackFileChanges = false) {
         this.version = version;
         this.quality = quality;
+        this.trackFileChanges = trackFileChanges;
+        if (trackFileChanges) {
+            this.fileWatcher = new file_watcher_1.FileWatcher(DotnetInstallDir.dirPath);
+        }
     }
     async installDotnet() {
+        // Capture baseline state before installation
+        if (this.fileWatcher) {
+            await this.fileWatcher.captureBaseline();
+        }
         const versionResolver = new DotnetVersionResolver(this.version);
         const dotnetVersion = await versionResolver.createDotnetVersion();
         /**
@@ -48389,7 +48590,29 @@ class DotnetCoreInstaller {
         if (dotnetInstallOutput.exitCode) {
             throw new Error(`Failed to install dotnet, exit code: ${dotnetInstallOutput.exitCode}. ${dotnetInstallOutput.stderr}`);
         }
+        // Detect changes after installation
+        if (this.fileWatcher) {
+            await this.fileWatcher.detectChanges();
+        }
         return this.parseInstalledVersion(dotnetInstallOutput.stdout);
+    }
+    /**
+     * Get the list of files that changed during installation
+     */
+    getTrackedChanges() {
+        if (!this.fileWatcher) {
+            return [];
+        }
+        return this.fileWatcher.getChangedFilesPaths();
+    }
+    /**
+     * Check if file watcher has tracked changes
+     */
+    hasTrackedChanges() {
+        if (!this.fileWatcher) {
+            return false;
+        }
+        return this.fileWatcher.hasChanges();
     }
     parseInstalledVersion(stdout) {
         const regex = /(?<version>\d+\.\d+\.\d+[a-z0-9._-]*)/gm;

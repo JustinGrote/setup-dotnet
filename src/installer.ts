@@ -9,6 +9,7 @@ import os from 'os';
 import semver from 'semver';
 import {IS_WINDOWS, PLATFORM} from './utils';
 import {QualityOptions} from './setup-dotnet';
+import {FileWatcher} from './file-watcher';
 
 export interface DotnetVersion {
   type: string;
@@ -255,12 +256,24 @@ export class DotnetCoreInstaller {
     DotnetInstallDir.setEnvironmentVariable();
   }
 
+  private fileWatcher: FileWatcher | null = null;
+
   constructor(
     private version: string,
-    private quality: QualityOptions
-  ) {}
+    private quality: QualityOptions,
+    private trackFileChanges: boolean = false
+  ) {
+    if (trackFileChanges) {
+      this.fileWatcher = new FileWatcher(DotnetInstallDir.dirPath);
+    }
+  }
 
   public async installDotnet(): Promise<string | null> {
+    // Capture baseline state before installation
+    if (this.fileWatcher) {
+      await this.fileWatcher.captureBaseline();
+    }
+
     const versionResolver = new DotnetVersionResolver(this.version);
     const dotnetVersion = await versionResolver.createDotnetVersion();
 
@@ -308,7 +321,32 @@ export class DotnetCoreInstaller {
       );
     }
 
+    // Detect changes after installation
+    if (this.fileWatcher) {
+      await this.fileWatcher.detectChanges();
+    }
+
     return this.parseInstalledVersion(dotnetInstallOutput.stdout);
+  }
+
+  /**
+   * Get the list of files that changed during installation
+   */
+  public getTrackedChanges(): string[] {
+    if (!this.fileWatcher) {
+      return [];
+    }
+    return this.fileWatcher.getChangedFilesPaths();
+  }
+
+  /**
+   * Check if file watcher has tracked changes
+   */
+  public hasTrackedChanges(): boolean {
+    if (!this.fileWatcher) {
+      return false;
+    }
+    return this.fileWatcher.hasChanges();
   }
 
   private parseInstalledVersion(stdout: string): string | null {
