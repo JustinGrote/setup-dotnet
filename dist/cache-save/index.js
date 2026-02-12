@@ -47870,28 +47870,6 @@ process.on('uncaughtException', e => {
     const warningPrefix = '[warning]';
     core.info(`${warningPrefix}${e.message}`);
 });
-const cacheInstallation = async () => {
-    const state = core.getState(constants_1.State.InstallationCacheMatchedKey);
-    const primaryKey = core.getState(constants_1.State.InstallationCachePrimaryKey);
-    if (!primaryKey) {
-        core.info('Installation primary key was not generated, not saving cache.');
-        return;
-    }
-    const cachePath = installer_1.DotnetInstallDir.dirPath;
-    if (!node_fs_1.default.existsSync(cachePath)) {
-        core.warning(`Installation path doesn't exist on disk: ${cachePath}. Not saving cache.`);
-        return;
-    }
-    if (primaryKey === state) {
-        core.info(`Installation cache hit occurred on the primary key ${primaryKey}, not saving cache.`);
-        return;
-    }
-    const cacheId = await cache.saveCache([cachePath], primaryKey);
-    if (cacheId == -1) {
-        return;
-    }
-    core.info(`Installation cache saved with the key: ${primaryKey}`);
-};
 async function run() {
     try {
         if (core.getBooleanInput('cache')) {
@@ -47912,17 +47890,40 @@ const cachePackages = async () => {
     }
     const { 'global-packages': cachePath } = await (0, cache_utils_1.getNuGetFolderPath)();
     if (!node_fs_1.default.existsSync(cachePath)) {
-        throw new Error(`Cache folder path is retrieved for .NET CLI but doesn't exist on disk: ${cachePath}`);
+        throw new Error(`Packages Cache folder path is retrieved for .NET CLI but doesn't exist on disk: ${cachePath}`);
     }
     if (primaryKey === state) {
-        core.info(`Cache hit occurred on the primary key ${primaryKey}, not saving cache.`);
+        core.info(`Packages Cache hit occurred on the primary key ${primaryKey}, not saving cache.`);
         return;
     }
     const cacheId = await cache.saveCache([cachePath], primaryKey);
     if (cacheId == -1) {
         return;
     }
-    core.info(`Cache saved with the key: ${primaryKey}`);
+    core.info(`Packages Cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
+};
+const cacheInstallation = async () => {
+    const state = core.getState(constants_1.State.InstallationCacheMatchedKey);
+    const primaryKey = core.getState(constants_1.State.InstallationCachePrimaryKey);
+    if (!primaryKey) {
+        core.info('Installation primary key was not generated, not saving cache.');
+        return;
+    }
+    const cachePath = installer_1.DotnetInstallDir.dirPath;
+    if (!node_fs_1.default.existsSync(cachePath)) {
+        core.warning(`Installation path doesn't exist on disk: ${cachePath}. Not saving cache.`);
+        return;
+    }
+    if (primaryKey === state) {
+        core.info(`Installation cache hit occurred on the primary key ${primaryKey}, not saving cache.`);
+        return;
+    }
+    core.info(`Cache miss for installation cache with the key ${primaryKey}, caching dotnet install path: ${cachePath}`);
+    const cacheId = await cache.saveCache([cachePath], primaryKey);
+    if (cacheId == -1) {
+        return;
+    }
+    core.info(`Installation cache saved with the key: ${primaryKey} and cache id: ${cacheId}`);
 };
 run();
 
